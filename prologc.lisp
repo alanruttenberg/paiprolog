@@ -401,18 +401,45 @@
 (defvar *predicate* nil
   "The Prolog predicate currently being compiled")
 
+;; (defun compile-predicate (symbol arity clauses)
+;;   "Compile all the clauses for a given symbol/arity
+;;   into a single LISP function."
+;;   (let ((*predicate* (make-predicate symbol arity))    ;***
+;;         (parameters (make-parameters arity)))
+;;     (compile
+;;      (eval
+;;       `(defun ,*predicate* (,@parameters cont)
+;; 	.,(maybe-add-undo-bindings
+;; 	   (mapcar #'(lambda (clause)
+;; 		       (compile-clause parameters clause 'cont))
+;; 		   clauses)))))))
+
 (defun compile-predicate (symbol arity clauses)
   "Compile all the clauses for a given symbol/arity
   into a single LISP function."
   (let ((*predicate* (make-predicate symbol arity))    ;***
         (parameters (make-parameters arity)))
-    (compile
-     (eval
-      `(defun ,*predicate* (,@parameters cont)
-	.,(maybe-add-undo-bindings
-	   (mapcar #'(lambda (clause)
-		       (compile-clause parameters clause 'cont))
-	    clauses)))))))
+    (if (get symbol :fact-only)
+	(let ((defun 
+		  `(defun ,*predicate* (,@parameters cont)
+		     (let ((old-trail (fill-pointer *trail*)))
+			(loop for clause in ',clauses
+			      for first = t then nil
+			      do (unless first (undo-bindings! old-trail))
+				 (if (loop for arg in (list ,@parameters)
+					   for el in (cdr (car clause))
+					   always 
+					   (unify! arg el))
+				     (funcall cont)))))))
+	  (compile (eval defun)))
+		  
+	 (compile
+	  (eval
+	   `(defun ,*predicate* (,@parameters cont)
+	      .,(maybe-add-undo-bindings
+		 (mapcar #'(lambda (clause)
+			     (compile-clause parameters clause 'cont))
+			 clauses))))))))
 
 (defun goal-cut-p (goal)
   (eq goal '!))
